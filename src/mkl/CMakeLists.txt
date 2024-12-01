@@ -9,4 +9,3 @@ target_include_directories(gemm_mkl
 target_link_libraries(gemm_mkl
     PUBLIC ${MKL_LIBRARIES}
 )
-

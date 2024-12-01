@@ -30,7 +30,6 @@ int main() {
   std::vector<double> A(M * K);
   std::vector<double> B(K * N);
   std::vector<double> C_seq(M * N);
-  std::vector<double> C_mkl(M * N);
 
   // Generate random data
   generate_random_matrix(A, M, K);
@@ -41,15 +40,23 @@ int main() {
     gemm::dgemm_seq(M, N, K, 1.0, A.data(), K, B.data(), N, 0.0, C_seq.data(),
                     N);
   });
-  std::cout << "Sequential DGEMM time: " << time_seq << " seconds\n";
+  std::cout << "DGEMM (sequential) time: " << time_seq << " seconds\n";
 
 #ifdef WITH_MKL
-  // Test MKL implementation
+  std::vector<double> C_mkl(M * N);
   double time_mkl = measure_time([&]() {
     gemm::dgemm_mkl(M, N, K, 1.0, A.data(), K, B.data(), N, 0.0, C_mkl.data(),
                     N);
   });
-  std::cout << "MKL DGEMM time: " << time_mkl << " seconds\n";
+  std::cout << "DGEMM (sequential mkl) time: " << time_mkl << " seconds\n";
+#endif
+
+#ifdef WITH_CUBLAS
+  std::vector<double> C_cublas(M * N);
+  double time_cuda = measure_time([&]() {
+    gemm::dgemm_cublas(M, N, K, 1.0, A.data(), K, B.data(), N, 0.0, C_cublas.data(), N);
+  });
+  std::cout << "DGEMM (cuBlas) time: " << time_cuda << " seconds\n";
 #endif
 
   return 0;

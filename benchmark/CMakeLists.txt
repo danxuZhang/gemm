@@ -13,3 +13,9 @@ if(WITH_MKL)
     )
 endif()
 
+if(WITH_CUBLAS)
+    target_compile_definitions(benchmark_gemm PRIVATE WITH_CUBLAS)
+    target_link_libraries(benchmark_gemm
+        PRIVATE gemm_cublas
+    )
+endif()
