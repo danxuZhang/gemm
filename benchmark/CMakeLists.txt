@@ -19,3 +19,10 @@ if(WITH_CUBLAS)
         PRIVATE gemm_cublas
     )
 endif()
+
+if(WITH_CUDA)
+    target_compile_definitions(benchmark_gemm PRIVATE WITH_CUDA)
+    target_link_libraries(benchmark_gemm
+        PRIVATE gemm_cuda
+    )
+endif()

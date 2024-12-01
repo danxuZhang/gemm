@@ -59,5 +59,14 @@ int main() {
   std::cout << "DGEMM (cuBlas) time: " << time_cuda << " seconds\n";
 #endif
 
+#ifdef WITH_CUDA
+    std::vector<double> C_cuda(M * N);
+    double time_cuda = measure_time([&]() {
+        gemm::dgemm_cuda(M, N, K, 1.0, A.data(), K, B.data(), N, 0.0, C_cuda.data(), N);
+    });
+    std::cout << "DGEMM (myCUDA) time: " << time_cuda << " seconds\n";
+#endif
+
+
   return 0;
 }
