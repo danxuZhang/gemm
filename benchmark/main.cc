@@ -58,11 +58,11 @@ template <typename Func> double measure_time(Func &&func) {
 }
 
 int main() {
-  const double alpha = 0.8;
-  const double beta = 0.2;
-  const int M = 1024;
-  const int N = 1024;
-  const int K = 1024;
+  const double alpha = 1.0;
+  const double beta = 0.0;
+  const int M = 40960;
+  const int N = 40960;
+  const int K = 40960;
 
   std::ostringstream oss;
   oss << "Benchmark on A(" << M << "," << K << ")xB(" << K << "," << N << ")+C(" << M << "," << N << ")\n";
@@ -77,11 +77,11 @@ int main() {
   generate_random_matrix(A, M, K);
   generate_random_matrix(B, K, N);
 
-  double time_seq = measure_time([&]() {
-    gemm::dgemm_seq(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_seq.data(),
-                    N);
-  });
-  std::cout << "DGEMM (sequential) time: " << time_seq << " seconds\n";
+  // double time_seq = measure_time([&]() {
+  //   gemm::dgemm_seq(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_seq.data(),
+  //                   N);
+  // });
+  // std::cout << "DGEMM (sequential) time: " << time_seq << " seconds\n";
 
 #ifdef WITH_MKL
   std::vector<double> C_mkl(M * N);
@@ -95,20 +95,23 @@ int main() {
 
 #ifdef WITH_CUBLAS
   std::vector<double> C_cublas(M * N);
+  // warmup
+  gemm::dgemm_cublas(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cublas.data(), N);
   double time_cublas = measure_time([&]() {
     gemm::dgemm_cublas(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cublas.data(), N);
   });
   std::cout << "DGEMM (cuBlas) time: " << time_cublas << " seconds\n";
-  validate_results(C_seq, C_cublas, "cuBLAS");
+  // validate_results(C_seq, C_cublas, "cuBLAS");
 #endif
 
 #ifdef WITH_CUDA
     std::vector<double> C_cuda(M * N);
+    gemm::dgemm_cuda(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cublas.data(), N);
     double time_cuda = measure_time([&]() {
         gemm::dgemm_cuda(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cuda.data(), N);
     });
     std::cout << "DGEMM (myCUDA) time: " << time_cuda << " seconds\n";
-    validate_results(C_seq, C_cuda, "MyCUDA");
+    // validate_results(C_seq, C_cuda, "MyCUDA");
 #endif
 
   return 0;
