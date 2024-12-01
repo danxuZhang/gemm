@@ -1,3 +1,12 @@
+.vscode/
+.idea
+.DS_Store
+
+.cache/
+build/
+build-*/
+compile_commands.json
+
 # Prerequisites
 *.d
 
