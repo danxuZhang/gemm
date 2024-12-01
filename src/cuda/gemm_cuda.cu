@@ -15,15 +15,22 @@
 
 namespace gemm {
 
-__global__ void dgemm_kernel(int m, int n, int k, double alpha,
-                            const double* __restrict__ a,
-                            const double* __restrict__ b,
+#define BLOCK_SIZE 16
+
+__global__ void dgemm_kernel(int M, int N, int K, double alpha,
+                            const double* __restrict__ A,
+                            const double* __restrict__ B,
                             double beta,
-                            double* __restrict__ c) {
-    // Dummy kernel - just copy input to output
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < m * n) {
-        c[idx] = c[idx] * beta + alpha * a[idx % (m*k)] * b[idx % (k*n)];
+                            double* __restrict__ C) {
+    const int row = blockIdx.y * blockDim.y + threadIdx.y;
+    const int col = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (row < M && col < N) {
+        double sum = 0.0;
+        for (int k = 0; k < K; ++k) {
+            sum += A[row*K+k] * B[k*N + col];
+        }
+        C[row*N+col] = alpha * sum + beta * C[row*N+col];
     }
 }
 
@@ -41,11 +48,13 @@ void dgemm_cuda(int m, int n, int k, double alpha, const double* a, int lda,
     CUDA_CHECK(cudaMemcpy(d_c, c, m * n * sizeof(double), cudaMemcpyHostToDevice));
 
     // Set up grid and block dimensions
-    int blockSize = 256;
-    int numBlocks = (m * n + blockSize - 1) / blockSize;
+    dim3 threadsPerBlock(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 numBlocks(
+        (n + BLOCK_SIZE - 1) / BLOCK_SIZE,    // Grid width
+        (m + BLOCK_SIZE - 1) / BLOCK_SIZE     // Grid height
+    );
 
-    // Launch dummy kernel
-    dgemm_kernel<<<numBlocks, blockSize>>>(m, n, k, alpha, d_a, d_b, beta, d_c);
+    dgemm_kernel<<<numBlocks, threadsPerBlock>>>(m, n, k, alpha, d_a, d_b, beta, d_c);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 

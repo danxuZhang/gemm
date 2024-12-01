@@ -1,5 +1,3 @@
-find_package(CUDA REQUIRED)
-
 cuda_add_library(gemm_cublas STATIC
     gemm_cublas.cu
 )

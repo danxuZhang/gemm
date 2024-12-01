@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.18)
 project(gemm LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -41,15 +41,19 @@ if(WITH_MKL)
     add_subdirectory(src/mkl)
 endif()
 
-if(WITH_CUBLAS)
+if(WITH_CUDA OR WITH_CUBLAS)
+    enable_language(CUDA)
     find_package(CUDA REQUIRED)
     include_directories(${CUDA_INCLUDE_DIRS})
+    set(CUDA_ARCHITECTURES "sm90")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
+endif()
+
+if(WITH_CUBLAS)
     add_subdirectory(src/cublas)
 endif()
 
 if(WITH_CUDA)
-    enable_language(CUDA)
-    find_package(CUDA REQUIRED)
     add_subdirectory(src/cuda)
 endif()
 

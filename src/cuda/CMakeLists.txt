@@ -1,9 +1,4 @@
-enable_language(CUDA)
-set(CMAKE_CUDA_STANDARD 14)
-set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-
-# Create CUDA library
-add_library(gemm_cuda STATIC
+cuda_add_library(gemm_cuda STATIC
     gemm_cuda.cu
 )
 
