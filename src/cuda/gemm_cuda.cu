@@ -15,7 +15,7 @@
 
 namespace gemm {
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 
 __global__ void dgemm_kernel(int M, int N, int K, double alpha,
                             const double* __restrict__ A,

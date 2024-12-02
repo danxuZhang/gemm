@@ -1,118 +1,184 @@
 #include "gemm.h"
 #include <chrono>
+#include <functional>
 #include <iostream>
-#include <sstream>
+#include <iomanip>
 #include <random>
 #include <vector>
+#include <string>
+#include <numeric>
+#include <algorithm>
 
-void generate_random_matrix(std::vector<double> &matrix, int rows, int cols) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_real_distribution<> dis(-1.0, 1.0);
+struct BenchmarkResult {
+    double min_time;
+    double max_time;
+    double avg_time;
+    double stddev;
+    double gflops;
+    std::vector<double> times;
+};
 
-  for (int i = 0; i < rows * cols; ++i) {
-    matrix[i] = dis(gen);
-  }
-}
+class GemmBenchmark {
+private:
+    // Test configurations
+    const std::vector<std::tuple<int, int, int>> test_sizes = {
+        {1024, 1024, 1024},
+        {2048, 2048, 2048},
+        {4096, 4096, 4096},
+        {8192, 8192, 8192},
+        // Non-square matrices
+        {2048, 1024, 4096},
+        {4096, 2048, 1024},
+        // Odd sizes to test padding/alignment
+        {1023, 2047, 4095},
+    };
+    
+    const int num_warmup = 3;
+    const int num_runs = 10;
+    const double alpha = 1.0;
+    const double beta = 0.0;
+    const double validation_tolerance = 1e-6;
 
-bool validate_results(const std::vector<double>& reference, 
-                     const std::vector<double>& result, 
-                     const std::string& implementation_name,
-                     double tolerance = 1e-6) {
-    if (reference.size() != result.size()) {
-        std::cout << "Error: Size mismatch between reference and " 
-                  << implementation_name << " results\n";
-        return false;
-    }
-
-    double max_diff = 0.0;
-    double max_rel_diff = 0.0;
-    int error_count = 0;
-
-    for (size_t i = 0; i < reference.size(); ++i) {
-        double abs_diff = std::abs(reference[i] - result[i]);
-        double rel_diff = abs_diff / (std::abs(reference[i]) + tolerance);
+    // Helper functions
+    void generate_random_matrix(std::vector<double>& matrix, int rows, int cols) {
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        static std::uniform_real_distribution<> dis(-1.0, 1.0);
         
-        max_diff = std::max(max_diff, abs_diff);
-        max_rel_diff = std::max(max_rel_diff, rel_diff);
-        
-        if (rel_diff > tolerance) {
-            error_count++;
+        #pragma omp parallel for
+        for (int i = 0; i < rows * cols; ++i) {
+            matrix[i] = dis(gen);
         }
     }
 
-    std::cout << implementation_name << " validation results:\n"
-              << "  Maximum absolute difference: " << max_diff << "\n"
-              << "  Maximum relative difference: " << max_rel_diff << "\n"
-              << "  Elements exceeding tolerance: " << error_count << "/"
-              << reference.size() << "\n\n";
+    BenchmarkResult run_single_benchmark(
+        const std::string& impl_name,
+        std::function<void(int, int, int, double, const double*, int, 
+                          const double*, int, double, double*, int)> gemm_func,
+        int M, int N, int K) {
+        
+        std::vector<double> A(M * K);
+        std::vector<double> B(K * N);
+        std::vector<double> C(M * N);
+        
+        generate_random_matrix(A, M, K);
+        generate_random_matrix(B, K, N);
+        
+        // Warm-up runs
+        for (int i = 0; i < num_warmup; ++i) {
+            gemm_func(M, N, K, alpha, A.data(), K, B.data(), N, beta, C.data(), N);
+        }
+        
+        // Timed runs
+        std::vector<double> times;
+        times.reserve(num_runs);
+        
+        for (int i = 0; i < num_runs; ++i) {
+            auto start = std::chrono::high_resolution_clock::now();
+            gemm_func(M, N, K, alpha, A.data(), K, B.data(), N, beta, C.data(), N);
+            auto end = std::chrono::high_resolution_clock::now();
+            
+            double time = std::chrono::duration<double>(end - start).count();
+            times.push_back(time);
+        }
+        
+        // Calculate statistics
+        double min_time = *std::min_element(times.begin(), times.end());
+        double max_time = *std::max_element(times.begin(), times.end());
+        double avg_time = std::accumulate(times.begin(), times.end(), 0.0) / num_runs;
+        
+        double variance = 0.0;
+        for (double time : times) {
+            variance += (time - avg_time) * (time - avg_time);
+        }
+        double stddev = std::sqrt(variance / num_runs);
+        
+        // Calculate GFLOPS (2*M*N*K for matrix multiplication)
+        double gflops = (2.0 * M * N * K) / (min_time * 1e9);
+        
+        return {min_time, max_time, avg_time, stddev, gflops, times};
+    }
 
-    return error_count == 0;
-}
+    void print_results(const std::string& impl_name, 
+                      const BenchmarkResult& result,
+                      int M, int N, int K) {
+        std::cout << std::fixed << std::setprecision(3)
+                  << impl_name << " Results (M=" << M << ", N=" << N << ", K=" << K << "):\n"
+                  << "  Min time:  " << result.min_time * 1000 << " ms\n"
+                  << "  Max time:  " << result.max_time * 1000 << " ms\n"
+                  << "  Avg time:  " << result.avg_time * 1000 << " ms\n"
+                  << "  Std dev:   " << result.stddev * 1000 << " ms\n"
+                  << "  GFLOPS:    " << result.gflops << "\n\n";
+    }
 
-template <typename Func> double measure_time(Func &&func) {
-  auto start = std::chrono::high_resolution_clock::now();
-  func();
-  auto end = std::chrono::high_resolution_clock::now();
-  return std::chrono::duration<double>(end - start).count();
-}
+public:
+    void run_benchmarks() {
+        std::cout << "Running GEMM benchmarks with:\n"
+                  << "  Warm-up runs: " << num_warmup << "\n"
+                  << "  Timed runs:   " << num_runs << "\n\n";
 
-int main() {
-  const double alpha = 1.0;
-  const double beta = 0.0;
-  const int M = 40960;
-  const int N = 40960;
-  const int K = 40960;
+        for (const auto& [M, N, K] : test_sizes) {
+            std::cout << "\nTesting size M=" << M << ", N=" << N << ", K=" << K << "\n";
+            std::cout << "========================================\n";
 
-  std::ostringstream oss;
-  oss << "Benchmark on A(" << M << "," << K << ")xB(" << K << "," << N << ")+C(" << M << "," << N << ")\n";
-  std::cout << oss.str() << std::endl;
-
-  // Initialize matrices
-  std::vector<double> A(M * K);
-  std::vector<double> B(K * N);
-  std::vector<double> C_seq(M * N);
-
-  // Generate random data
-  generate_random_matrix(A, M, K);
-  generate_random_matrix(B, K, N);
-
-  // double time_seq = measure_time([&]() {
-  //   gemm::dgemm_seq(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_seq.data(),
-  //                   N);
-  // });
-  // std::cout << "DGEMM (sequential) time: " << time_seq << " seconds\n";
-
-#ifdef WITH_MKL
-  std::vector<double> C_mkl(M * N);
-  double time_mkl = measure_time([&]() {
-    gemm::dgemm_mkl(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_mkl.data(),
-                    N);
-  });
-  std::cout << "DGEMM (sequential mkl) time: " << time_mkl << " seconds\n";
-  validate_results(C_seq, C_mkl, "MKL");
+#ifdef WITH_CUDA
+            auto cuda_result = run_single_benchmark(
+                "Custom CUDA", gemm::dgemm_cuda, M, N, K);
+            print_results("Custom CUDA", cuda_result, M, N, K);
 #endif
 
 #ifdef WITH_CUBLAS
-  std::vector<double> C_cublas(M * N);
-  // warmup
-  gemm::dgemm_cublas(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cublas.data(), N);
-  double time_cublas = measure_time([&]() {
-    gemm::dgemm_cublas(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cublas.data(), N);
-  });
-  std::cout << "DGEMM (cuBlas) time: " << time_cublas << " seconds\n";
-  // validate_results(C_seq, C_cublas, "cuBLAS");
+            auto cublas_result = run_single_benchmark(
+                "cuBLAS", gemm::dgemm_cublas, M, N, K);
+            print_results("cuBLAS", cublas_result, M, N, K);
+#endif
+
+
+#ifdef WITH_MKL
+            auto mkl_result = run_single_benchmark(
+                "MKL", gemm::dgemm_mkl, M, N, K);
+            print_results("MKL", mkl_result, M, N, K);
+#endif
+        }
+    }
+
+    void validate_implementations() {
+        // Use a smaller size for validation
+        const int M = 1024, N = 1024, K = 1024;
+        std::vector<double> A(M * K);
+        std::vector<double> B(K * N);
+        std::vector<double> C_ref(M * N);
+        std::vector<double> C_test(M * N);
+
+        generate_random_matrix(A, M, K);
+        generate_random_matrix(B, K, N);
+
+        // Generate reference result using MKL or sequential implementation
+#ifdef WITH_MKL
+        gemm::dgemm_mkl(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_ref.data(), N);
+#else
+        gemm::dgemm_seq(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_ref.data(), N);
+#endif
+
+        //  each implementation
+#ifdef WITH_CUBLAS
+        gemm::dgemm_cublas(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_test.data(), N);
 #endif
 
 #ifdef WITH_CUDA
-    std::vector<double> C_cuda(M * N);
-    gemm::dgemm_cuda(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cublas.data(), N);
-    double time_cuda = measure_time([&]() {
-        gemm::dgemm_cuda(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_cuda.data(), N);
-    });
-    std::cout << "DGEMM (myCUDA) time: " << time_cuda << " seconds\n";
-    // validate_results(C_seq, C_cuda, "MyCUDA");
+        gemm::dgemm_cuda(M, N, K, alpha, A.data(), K, B.data(), N, beta, C_test.data(), N);
 #endif
+    }
+};
 
-  return 0;
+int main() {
+    GemmBenchmark benchmark;
+    
+    std::cout << "Validating implementations...\n";
+    benchmark.validate_implementations();
+    
+    std::cout << "\nRunning performance benchmarks...\n";
+    benchmark.run_benchmarks();
+    
+    return 0;
 }

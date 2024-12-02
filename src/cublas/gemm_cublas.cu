@@ -26,6 +26,9 @@ void dgemm_cublas(int m, int n, int k, double alpha, const double* a, int lda,
     cublasHandle_t handle;
     handleCublasError(cublasCreate(&handle), "cublasCreate failed");
 
+    cublasSetAtomicsMode(handle, CUBLAS_ATOMICS_NOT_ALLOWED);
+    cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+
     // Allocate device memory
     double *d_a, *d_b, *d_c;
     handleCudaError(cudaMalloc(&d_a, m * k * sizeof(double)), "cudaMalloc d_a failed");

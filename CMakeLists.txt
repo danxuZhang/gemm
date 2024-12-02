@@ -45,8 +45,15 @@ if(WITH_CUDA OR WITH_CUBLAS)
     enable_language(CUDA)
     find_package(CUDA REQUIRED)
     include_directories(${CUDA_INCLUDE_DIRS})
-    set(CUDA_ARCHITECTURES "sm90")
-    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
+    set(CUDA_ARCHITECTURES "sm89")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} \
+    -O3 \
+    -Xcompiler=-O3 \
+    --use_fast_math \
+    -lineinfo \
+    --extra-device-vectorization \
+    --default-stream per-thread \
+    ")
 endif()
 
 if(WITH_CUBLAS)
